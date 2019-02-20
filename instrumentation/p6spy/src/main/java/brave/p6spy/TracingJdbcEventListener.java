@@ -1,8 +1,11 @@
 package brave.p6spy;
 
 import brave.Span;
+import brave.Tracer;
+import brave.Tracing;
 import brave.internal.Nullable;
 import brave.propagation.ThreadLocalSpan;
+import com.p6spy.engine.common.ConnectionInformation;
 import com.p6spy.engine.common.StatementInformation;
 import com.p6spy.engine.event.SimpleJdbcEventListener;
 import java.net.URI;
@@ -22,6 +25,21 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
   TracingJdbcEventListener(@Nullable String remoteServiceName, boolean includeParameterValues) {
     this.remoteServiceName = remoteServiceName;
     this.includeParameterValues = includeParameterValues;
+  }
+
+  @Override
+  public void onBeforeCommit(ConnectionInformation connectionInformation) {
+    annotate("committing");
+  }
+
+  @Override
+  public void onAfterCommit(ConnectionInformation connectionInformation, long timeElapsedNanos, SQLException e) {
+    annotate("committed");
+  }
+
+ @Override
+  public void onAfterRollback(ConnectionInformation connectionInformation, long timeElapsedNanos, SQLException e) {
+    annotate("rollback", e);
   }
 
   /**
@@ -85,4 +103,23 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
       // remote address is optional
     }
   }
+
+  private void annotate(String value) {
+    annotate(value, null);
+  }
+
+  private void annotate(String value, SQLException e) {
+    Tracer tracer = Tracing.currentTracer();
+    if (tracer != null) {
+      Span span = tracer.currentSpan();
+      if (span == null || span.isNoop()) return;
+      if (value != null && !value.isEmpty()) {
+        span.annotate(value);
+      }
+      if (e != null) {
+        span.annotate("ERROR: " + e.getMessage());
+      }
+    }
+  }
+
 }
